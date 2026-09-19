@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "Order": {
+      "title": "Order",
+      "description": "Group lunch order record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "name": { "type": "string" },
+        "restaurantId": { "type": "string" },
+        "restaurantName": { "type": "string" },
+        "mealType": { "type": "string" },
+        "mealName": { "type": "string" },
+        "sideItems": { "type": "array" },
+        "price": { "type": "number" },
+        "isPaid": { "type": "boolean" },
+        "paymentPlatform": { "type": "string" },
+        "receiptUrl": { "type": "string" },
+        "paymentTime": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "plant": { "type": "string" },
+        "isAdminVerified": { "type": "boolean" }
+      },
+      "required": ["id", "date", "name", "price"]
+    },
+    "Transfer": {
+      "title": "Transfer",
+      "description": "Corporate transfer record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "amount": { "type": "number" },
+        "screenshotUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "date", "amount", "screenshotUrl"]
+    }
+  },
+  "firestore": {
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Collection of all group lunch orders"
+    },
+    "/transfers/{transferId}": {
+      "schema": "Transfer",
+      "description": "Collection of corporate transfer records"
+    },
+    "/config/{configId}": {
+      "schema": "Config",
+      "description": "Application configuration and rates"
+    }
+  }
+}

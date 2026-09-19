@@ -1,0 +1,6 @@
+{
+  "name": "Novolyte Team Lunch System",
+  "description": "团队的每天午餐订餐登记、支付状态记录、管理员转账截图上传及数据汇总统计、表格导出的全栈Web系统。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
