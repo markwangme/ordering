@@ -10,6 +10,7 @@ import StatsView from './components/StatsView';
 import AdminView from './components/AdminView';
 import CompanyTransfersList from './components/CompanyTransfersList';
 import RestaurantAuditView from './components/RestaurantAuditView';
+import WxPusherBinding from './components/WxPusherBinding';
 import PasscodeLockScreen from './components/PasscodeLockScreen';
 import { translations, Language } from './i18n';
 import { 
@@ -474,15 +475,18 @@ export default function App() {
             
             {/* View switching */}
             {activeTab === 'order' && (
-              <OrderForm
-                lang={lang}
-                orders={orders}
-                rmbRates={rmbRates}
-                selectedDate={selectedDate}
-                onDateChange={setSelectedDate}
-                onOrderSubmitted={fetchAllData}
-                onDeleteOrder={handleDeleteOrder}
-              />
+              <>
+                <WxPusherBinding />
+                <OrderForm
+                  lang={lang}
+                  orders={orders}
+                  rmbRates={rmbRates}
+                  selectedDate={selectedDate}
+                  onDateChange={setSelectedDate}
+                  onOrderSubmitted={fetchAllData}
+                  onDeleteOrder={handleDeleteOrder}
+                />
+              </>
             )}
 
             {activeTab === 'stats' && (

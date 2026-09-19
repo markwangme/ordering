@@ -16,6 +16,7 @@ const isProduction = process.env.NODE_ENV === 'production' && hasDistBuild;
 
 const app = express();
 const PORT = 3000;
+const REMINDER_TIME_ZONE = 'Asia/Kuala_Lumpur';
 
 // Enable gzip/deflate response compression for ultra-fast payload delivery over mobile networks
 app.use(compression());
@@ -856,6 +857,81 @@ app.get('/api/system/health', async (req, res) => {
     isQuotaWarning: usagePercentage >= 80,
     recommendation: usagePercentage >= 80 ? '当前订餐总记录数已接近容量配额限制，系统开启了 FIFO 覆盖机制自动保护极早期数据。' : '系统数据库状态良好，数据具备云端实时冗余。'
   });
+});
+
+// Lightweight health endpoint for Cloudflare and uptime checks.  Keep this
+// separate from /api/system/health because the latter intentionally exposes
+// administrator-facing storage diagnostics.
+app.get('/api/health', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: true });
+});
+
+function getKualaLumpurDate(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: REMINDER_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function reminderOrderView(order: Order) {
+  return {
+    id: order.id,
+    date: order.date,
+    name: order.name,
+    price: order.price,
+    isPaid: !!order.isPaid,
+    mealName: order.mealName || '',
+    restaurantName: order.restaurantName || '',
+    plant: order.plant || '',
+  };
+}
+
+// Small read-only endpoint used by the Cloudflare Worker.  It deliberately
+// excludes receiptUrl because receipts are base64 images and can make the
+// normal order payload unnecessarily large.
+app.get('/api/orders/reminder', async (req, res) => {
+  try {
+    if (process.env.REMINDER_API_SECRET) {
+      const supplied = req.header('x-reminder-secret') || '';
+      if (supplied !== process.env.REMINDER_API_SECRET) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    }
+
+    const requestedDate = typeof req.query.date === 'string' && req.query.date
+      ? req.query.date
+      : getKualaLumpurDate();
+    if (!isValidIsoDate(requestedDate)) {
+      return res.status(400).json({ error: 'date 必须是 YYYY-MM-DD 格式' });
+    }
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'x-reminder-secret');
+    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+
+    const orders = await getOrdersAsync();
+    res.json(orders.filter(order => order.date === requestedDate).map(reminderOrderView));
+  } catch (err: any) {
+    console.error('Error reading reminder orders:', err);
+    res.status(500).json({ error: '提醒订单读取失败' });
+  }
+});
+
+app.options('/api/orders/reminder', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'x-reminder-secret');
+  res.status(204).end();
 });
 
 // Update System Storage Settings & Pruning Thresholds

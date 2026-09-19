@@ -1,0 +1,25 @@
+name = "ordering-wxpusher-reminder"
+main = "src/index.ts"
+compatibility_date = "2026-09-19"
+
+[triggers]
+# Cron is UTC: 01:30 = 09:30, 07:00 = 15:00, 09:00 = 17:00 in Singapore/Malaysia.
+crons = ["30 1 * * *", "0 7 * * *", "0 9 * * *"]
+
+[vars]
+# Public URL of the deployed ordering app.
+APP_BASE_URL = "https://ordering.ai.studio/"
+# The current order API is still served by the Google-hosted Express backend.
+API_BASE_URL = "https://ordering.ai.studio/"
+WXPUSHER_TOPIC_ID = "46663"
+# Optional: set ORDER_API_SECRET as a Cloudflare secret if the Google backend
+# has REMINDER_API_SECRET configured. Leave unset for the current deployment.
+
+# Set secrets with:
+# wrangler secret put WXPUSHER_APP_TOKEN
+# wrangler secret put WXPUSHER_TOPIC_ID
+# wrangler secret put NOTIFICATION_SECRET
+
+[[kv_namespaces]]
+binding = "WXPUSHER_BINDINGS"
+id = "80cba8623a624350be53713dc3edd3e4"
