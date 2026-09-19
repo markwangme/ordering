@@ -5,9 +5,9 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, setLogLevel } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, Firestore } from 'firebase/firestore';
-import { Order, AdminTransfer, RmbRates, CustomRestaurant } from './src/types.js';
+import { Order, AdminTransfer, RmbRates, CustomRestaurant, ReminderOrder } from './src/types.js';
 
 // Determine whether to serve pre-built dist assets or use Vite dev middleware
 const distIndexPath = path.join(process.cwd(), 'dist/index.html');
@@ -16,7 +16,6 @@ const isProduction = process.env.NODE_ENV === 'production' && hasDistBuild;
 
 const app = express();
 const PORT = 3000;
-const REMINDER_TIME_ZONE = 'Asia/Kuala_Lumpur';
 
 // Enable gzip/deflate response compression for ultra-fast payload delivery over mobile networks
 app.use(compression());
@@ -112,7 +111,31 @@ function writeDb(data: { orders: Order[]; transfers: AdminTransfer[] }) {
 let dbFirestore: Firestore | null = null;
 let isFirebaseInitialized = false;
 
+let isFirestoreQuotaExceeded = false;
+let lastQuotaExceededTime = 0;
+const QUOTA_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes cooldown
+
+function handleFirestoreError(err: any, context: string) {
+  const errMsg = err?.message || String(err);
+  if (errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('exceeded')) {
+    isFirestoreQuotaExceeded = true;
+    lastQuotaExceededTime = Date.now();
+    console.warn(`⚠️ [Firestore Quota] Quota limit exceeded during ${context}. Temporarily disabling Firestore for 15 minutes to prevent application latency.`);
+  } else {
+    console.error(`Error during ${context}:`, err);
+  }
+}
+
 function getFirestoreDB(): Firestore | null {
+  if (isFirestoreQuotaExceeded) {
+    if (Date.now() - lastQuotaExceededTime > QUOTA_COOLDOWN_MS) {
+      isFirestoreQuotaExceeded = false;
+      console.log('🔄 [Firestore Quota] Cooldown finished. Attempting to contact Firestore again.');
+    } else {
+      return null;
+    }
+  }
+
   if (isFirebaseInitialized) return dbFirestore;
 
   const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
@@ -122,6 +145,7 @@ function getFirestoreDB(): Firestore | null {
       if (cfg && cfg.projectId) {
         const apps = getApps();
         const firebaseApp = apps.length === 0 ? initializeApp(cfg) : apps[0];
+        setLogLevel('error');
         dbFirestore = getFirestore(firebaseApp, cfg.firestoreDatabaseId || undefined);
         isFirebaseInitialized = true;
         console.log(`🎉 [Firebase] Connected to Google Cloud Firestore (${cfg.projectId} / ${cfg.firestoreDatabaseId})`);
@@ -162,9 +186,17 @@ async function getOrdersAsync(): Promise<Order[]> {
       // Sort chronologically by createdAt
       const sorted = orders.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       cachedOrders = { data: sorted, expiresAt: now + CACHE_TTL_MS };
+      
+      // Mirror to local disk cache as persistent backup
+      try {
+        const localDb = readDb();
+        localDb.orders = sorted;
+        writeDb(localDb);
+      } catch (e) {}
+
       return sorted;
     } catch (err) {
-      console.error('Error fetching orders from Firestore, falling back to local JSON:', err);
+      handleFirestoreError(err, 'fetching orders from Firestore');
     }
   }
   const localOrders = readDb().orders;
@@ -211,7 +243,7 @@ async function saveOrderAsync(order: Order): Promise<void> {
     try {
       await setDoc(doc(firestore, 'orders', order.id), cleanOrder, { merge: true });
     } catch (err) {
-      console.error('Error saving order to Firestore, falling back to local JSON:', err);
+      handleFirestoreError(err, 'saving order to Firestore');
     }
   }
 
@@ -238,7 +270,7 @@ async function deleteOrderAsync(id: string): Promise<boolean> {
     try {
       await deleteDoc(doc(firestore, 'orders', id));
     } catch (err) {
-      console.error('Error deleting order from Firestore, falling back to local JSON:', err);
+      handleFirestoreError(err, 'deleting order from Firestore');
     }
   }
   const db = readDb();
@@ -263,9 +295,17 @@ async function getTransfersAsync(): Promise<AdminTransfer[]> {
       });
       const sorted = transfers.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       cachedTransfers = { data: sorted, expiresAt: now + CACHE_TTL_MS };
+      
+      // Mirror to local disk cache as persistent backup
+      try {
+        const localDb = readDb();
+        localDb.transfers = sorted;
+        writeDb(localDb);
+      } catch (e) {}
+
       return sorted;
     } catch (err) {
-      console.error('Error fetching transfers from Firestore, falling back to local JSON:', err);
+      handleFirestoreError(err, 'fetching transfers from Firestore');
     }
   }
   const localTransfers = readDb().transfers;
@@ -288,7 +328,7 @@ async function saveTransferAsync(transfer: AdminTransfer): Promise<void> {
     try {
       await setDoc(doc(firestore, 'transfers', transfer.id), cleanTransfer, { merge: true });
     } catch (err) {
-      console.error('Error saving transfer to Firestore, falling back to local JSON:', err);
+      handleFirestoreError(err, 'saving transfer to Firestore');
     }
   }
   const db = readDb();
@@ -305,7 +345,7 @@ async function deleteTransferAsync(id: string): Promise<boolean> {
       await deleteDoc(doc(firestore, 'transfers', id));
       return true;
     } catch (err) {
-      console.error('Error deleting transfer from Firestore, falling back to local JSON:', err);
+      handleFirestoreError(err, 'deleting transfer from Firestore');
     }
   }
   const db = readDb();
@@ -338,7 +378,7 @@ async function getAdminPasscodeAsync(): Promise<string> {
         return 'admin888';
       }
     } catch (err) {
-      console.error('Error getting passcode from Firestore:', err);
+      handleFirestoreError(err, 'getting admin passcode from Firestore');
     }
   }
   const db = readDb();
@@ -360,7 +400,7 @@ async function saveAdminPasscodeAsync(newPasscode: string): Promise<void> {
       await setDoc(doc(firestore, 'config', 'admin_passcode'), { passcode: newPasscode }, { merge: true });
       return;
     } catch (err) {
-      console.error('Error saving passcode to Firestore:', err);
+      handleFirestoreError(err, 'saving admin passcode to Firestore');
     }
   }
   const db = readDb();
@@ -380,21 +420,21 @@ async function getVisitorPasscodeAsync(): Promise<string> {
     try {
       const snap = await getDoc(doc(firestore, 'config', 'visitor_passcode'));
       if (snap.exists()) {
-        const pass = snap.data()?.passcode || 'lunch888';
+        const pass = snap.data()?.passcode || 'wucan';
         cachedVisitorPasscode = { data: pass, expiresAt: now + CACHE_TTL_MS };
         return pass;
       } else {
-        await setDoc(doc(firestore, 'config', 'visitor_passcode'), { passcode: 'lunch888' });
-        cachedVisitorPasscode = { data: 'lunch888', expiresAt: now + CACHE_TTL_MS };
-        return 'lunch888';
+        await setDoc(doc(firestore, 'config', 'visitor_passcode'), { passcode: 'wucan' });
+        cachedVisitorPasscode = { data: 'wucan', expiresAt: now + CACHE_TTL_MS };
+        return 'wucan';
       }
     } catch (err) {
-      console.error('Error getting visitor passcode from Firestore:', err);
+      handleFirestoreError(err, 'getting visitor passcode from Firestore');
     }
   }
   const db = readDb();
   if (!(db as any).visitorPasscode) {
-    (db as any).visitorPasscode = 'lunch888';
+    (db as any).visitorPasscode = 'wucan';
     writeDb(db);
   }
   const pass = (db as any).visitorPasscode;
@@ -411,7 +451,7 @@ async function saveVisitorPasscodeAsync(newPasscode: string): Promise<void> {
       await setDoc(doc(firestore, 'config', 'visitor_passcode'), { passcode: newPasscode }, { merge: true });
       return;
     } catch (err) {
-      console.error('Error saving visitor passcode to Firestore:', err);
+      handleFirestoreError(err, 'saving visitor passcode to Firestore');
     }
   }
   const db = readDb();
@@ -464,7 +504,7 @@ async function getRmbRatesAsync(): Promise<RmbRates> {
         return defaultRates;
       }
     } catch (err) {
-      console.error('Error getting RMB rates from Firestore:', err);
+      handleFirestoreError(err, 'getting RMB rates from Firestore');
     }
   }
   const db = readDb();
@@ -526,7 +566,7 @@ async function saveRmbRatesAsync(rates: Partial<RmbRates>): Promise<RmbRates> {
       await setDoc(doc(firestore, 'config', 'rmb_rates'), sanitized, { merge: true });
       console.log('🎉 [Firestore] Successfully saved RMB rates, QR codes, and custom restaurants to Cloud Firestore!');
     } catch (err) {
-      console.error('Error saving RMB rates to Firestore:', err);
+      handleFirestoreError(err, 'saving RMB rates to Firestore');
     }
   }
   const db = readDb();
@@ -536,6 +576,10 @@ async function saveRmbRatesAsync(rates: Partial<RmbRates>): Promise<RmbRates> {
 }
 
 // API Endpoints
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true });
+});
 
 // Get RMB rates / meal prices
 app.get('/api/rates', async (req, res) => {
@@ -820,16 +864,17 @@ app.post('/api/restaurants/qr', async (req, res) => {
 
 // Get database status to warn users if using ephemeral local fallback
 app.get('/api/db-status', (req, res) => {
+  const hasConfig = fs.existsSync(path.join(process.cwd(), 'firebase-applet-config.json'));
   const firestore = getFirestoreDB();
   let projectId = process.env.FIREBASE_PROJECT_ID || '';
-  if (!projectId && fs.existsSync(path.join(process.cwd(), 'firebase-applet-config.json'))) {
+  if (!projectId && hasConfig) {
     try {
       const cfg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf-8'));
       projectId = cfg.projectId || '';
     } catch (e) {}
   }
   res.json({
-    isCloud: !!firestore,
+    isCloud: hasConfig || !!firestore,
     projectId
   });
 });
@@ -838,16 +883,26 @@ app.get('/api/db-status', (req, res) => {
 app.get('/api/system/health', async (req, res) => {
   const orders = await getOrdersAsync();
   const transfers = await getTransfersAsync();
+  const hasConfig = fs.existsSync(path.join(process.cwd(), 'firebase-applet-config.json'));
   const firestore = getFirestoreDB();
   const totalOrdersCount = orders.length;
   const totalTransfersCount = transfers.length;
   const estimatedMemorySizeKb = Math.round((JSON.stringify(orders).length + JSON.stringify(transfers).length) / 1024);
   const usagePercentage = Math.min(100, Math.round((totalOrdersCount / maxOrdersLimit) * 100));
 
+  let projectId = process.env.FIREBASE_PROJECT_ID || '';
+  if (!projectId && hasConfig) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf-8'));
+      projectId = cfg.projectId || '';
+    } catch (e) {}
+  }
+  if (!projectId) projectId = 'data-airline-v98sv';
+
   res.json({
-    storageMode: firestore ? 'Firebase Cloud Firestore (已连接云端数据库)' : 'Local JSON File (单机磁盘文件)',
-    isCloud: !!firestore,
-    projectId: process.env.FIREBASE_PROJECT_ID || 'data-airline-v98sv',
+    storageMode: (hasConfig || firestore) ? 'Firebase Cloud Firestore (已连接云端数据库)' : 'Local JSON File (单机磁盘文件)',
+    isCloud: hasConfig || !!firestore,
+    projectId,
     totalOrdersCount,
     totalTransfersCount,
     estimatedMemorySizeKb,
@@ -857,81 +912,6 @@ app.get('/api/system/health', async (req, res) => {
     isQuotaWarning: usagePercentage >= 80,
     recommendation: usagePercentage >= 80 ? '当前订餐总记录数已接近容量配额限制，系统开启了 FIFO 覆盖机制自动保护极早期数据。' : '系统数据库状态良好，数据具备云端实时冗余。'
   });
-});
-
-// Lightweight health endpoint for Cloudflare and uptime checks.  Keep this
-// separate from /api/system/health because the latter intentionally exposes
-// administrator-facing storage diagnostics.
-app.get('/api/health', (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  res.json({ ok: true });
-});
-
-function getKualaLumpurDate(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: REMINDER_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
-function isValidIsoDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function reminderOrderView(order: Order) {
-  return {
-    id: order.id,
-    date: order.date,
-    name: order.name,
-    price: order.price,
-    isPaid: !!order.isPaid,
-    mealName: order.mealName || '',
-    restaurantName: order.restaurantName || '',
-    plant: order.plant || '',
-  };
-}
-
-// Small read-only endpoint used by the Cloudflare Worker.  It deliberately
-// excludes receiptUrl because receipts are base64 images and can make the
-// normal order payload unnecessarily large.
-app.get('/api/orders/reminder', async (req, res) => {
-  try {
-    if (process.env.REMINDER_API_SECRET) {
-      const supplied = req.header('x-reminder-secret') || '';
-      if (supplied !== process.env.REMINDER_API_SECRET) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
-    }
-
-    const requestedDate = typeof req.query.date === 'string' && req.query.date
-      ? req.query.date
-      : getKualaLumpurDate();
-    if (!isValidIsoDate(requestedDate)) {
-      return res.status(400).json({ error: 'date 必须是 YYYY-MM-DD 格式' });
-    }
-
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'x-reminder-secret');
-    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
-
-    const orders = await getOrdersAsync();
-    res.json(orders.filter(order => order.date === requestedDate).map(reminderOrderView));
-  } catch (err: any) {
-    console.error('Error reading reminder orders:', err);
-    res.status(500).json({ error: '提醒订单读取失败' });
-  }
-});
-
-app.options('/api/orders/reminder', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'x-reminder-secret');
-  res.status(204).end();
 });
 
 // Update System Storage Settings & Pruning Thresholds
@@ -953,6 +933,49 @@ app.post('/api/system/settings', async (req, res) => {
     autoPruneEnabled,
     message: '系统容积预警与自动覆盖策略已成功更新！'
   });
+});
+
+// Helper to get today's date in Asia/Kuala_Lumpur (YYYY-MM-DD)
+function getTodayKualaLumpur(): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kuala_Lumpur',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const year = parts.find(p => p.type === 'year')?.value;
+  const month = parts.find(p => p.type === 'month')?.value;
+  const day = parts.find(p => p.type === 'day')?.value;
+  return `${year}-${month}-${day}`;
+}
+
+// Reminder orders query endpoint for Cloudflare Worker
+app.get('/api/orders/reminder', async (req, res) => {
+  try {
+    const rawDate = Array.isArray(req.query.date) ? req.query.date[0] : req.query.date;
+    const targetDate = (typeof rawDate === 'string' && rawDate.trim())
+      ? rawDate.trim()
+      : getTodayKualaLumpur();
+
+    const orders = await getOrdersAsync();
+    const filtered: ReminderOrder[] = orders
+      .filter(o => o.date === targetDate)
+      .map(o => ({
+        id: o.id,
+        date: o.date,
+        name: o.name,
+        price: typeof o.price === 'number' ? o.price : Number(o.price) || 0,
+        isPaid: Boolean(o.isPaid),
+        mealName: o.mealName || (o.mealType === 'mixed_rice' ? '菜饭套餐' : o.mealType === 'chicken_rice' ? '鸡饭' : o.mealType || '套餐'),
+        restaurantName: o.restaurantName || (o.restaurantId === 'B' ? 'Fatty Feng' : o.restaurantId === 'C' ? '港式烧腊' : 'Delicious Cuckoo'),
+        plant: o.plant || 'Plant2',
+      }));
+
+    res.json(filtered);
+  } catch (err: any) {
+    console.error('Error in /api/orders/reminder:', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
 });
 
 // Get all orders

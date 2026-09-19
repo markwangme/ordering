@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Order, AdminTransfer, RmbRates } from '../types';
+import { Order, AdminTransfer, RmbRates, APP_BASE_URL } from '../types';
 import { translations, Language } from '../i18n';
 import { 
   getActiveRestaurants, 
@@ -413,8 +413,6 @@ export default function StatsView({
 
   // Generate shareable URL for unpaid orders module
   const generateUnpaidShareUrl = () => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
     const params = new URLSearchParams();
     params.set('tab', 'stats');
     params.set('view', 'unpaid');
@@ -427,7 +425,7 @@ export default function StatsView({
     if (unpaidRestaurantFilter !== 'all') {
       params.set('restaurant', unpaidRestaurantFilter);
     }
-    return `${origin}${pathname}?${params.toString()}`;
+    return `${APP_BASE_URL}/?${params.toString()}`;
   };
 
   const handleCopyUnpaidLink = async () => {

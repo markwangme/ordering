@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import JSZip from 'jszip';
-import { Order, AdminTransfer, RmbRates, CustomRestaurant, CustomMenuItem } from '../types';
+import { Order, AdminTransfer, RmbRates, CustomRestaurant, CustomMenuItem, APP_BASE_URL } from '../types';
 import { RESTAURANTS, getActiveRestaurants } from '../data/menu';
 import RestaurantManager from './RestaurantManager';
 import { 
@@ -369,8 +369,7 @@ export default function AdminView({
   };
 
   const getAuditShareUrl = () => {
-    if (typeof window === 'undefined') return '';
-    return `${window.location.origin}${window.location.pathname}?shareRest=${batchExportRestId}&date=${batchExportDate}`;
+    return `${APP_BASE_URL}/?shareRest=${batchExportRestId}&date=${batchExportDate}`;
   };
 
   // Generate Restaurant Order Summary Text (NO Employee Names, with Package Price and Counts)
@@ -975,7 +974,7 @@ export default function AdminView({
                   {lang === 'zh' ? '当前团队访问口令' : 'Current Passcode'}
                 </label>
                 <span className="text-[11px] font-mono px-2 py-0.5 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded-md">
-                  {currentVisitorPasscode || 'lunch888'}
+                  {currentVisitorPasscode || 'wucan'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">

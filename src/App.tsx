@@ -10,8 +10,8 @@ import StatsView from './components/StatsView';
 import AdminView from './components/AdminView';
 import CompanyTransfersList from './components/CompanyTransfersList';
 import RestaurantAuditView from './components/RestaurantAuditView';
-import WxPusherBinding from './components/WxPusherBinding';
 import PasscodeLockScreen from './components/PasscodeLockScreen';
+import HelpView from './components/HelpView';
 import { translations, Language } from './i18n';
 import { 
   UtensilsCrossed, 
@@ -31,29 +31,54 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'order' | 'stats' | 'admin'>(() => {
+  const getTabFromLocation = (): 'order' | 'stats' | 'admin' | 'help' => {
     if (typeof window !== 'undefined') {
-      const path = window.location.pathname.toLowerCase();
+      const path = window.location.pathname.toLowerCase().replace(/\/$/, '');
       const params = new URLSearchParams(window.location.search);
-      if (path === '/admin' || path.startsWith('/admin/') || params.get('tab') === 'admin') {
+      if (params.get('tab') === 'help' || path === '/help' || path === '/guide') {
+        return 'help';
+      }
+      if (path === '/admin' || path.startsWith('/admin') || params.get('tab') === 'admin') {
         return 'admin';
       }
       const view = params.get('view');
       const tab = params.get('tab');
-      if (view === 'unpaid' || tab === 'unpaid' || tab === 'stats') {
+      if (path === '/stats' || view === 'unpaid' || tab === 'unpaid' || tab === 'stats') {
         return 'stats';
+      }
+      if (path === '/order') {
+        return 'order';
       }
     }
     return 'order';
-  });
+  };
 
-  // Full-Site Visitor Passcode Verification State
-  const [passcodeVerified, setPasscodeVerified] = useState<boolean>(() => {
+  const [activeTab, setActiveTab] = useState<'order' | 'stats' | 'admin' | 'help'>(getTabFromLocation);
+
+  const navigateToTab = (tab: 'order' | 'stats' | 'admin' | 'help', replace = false) => {
+    setActiveTab(tab);
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('team_passcode_verified') === 'true';
+      const targetPath = tab === 'order' ? '/' : `/${tab}`;
+      const currentNormalized = window.location.pathname.toLowerCase().replace(/\/$/, '') || '/';
+      const targetNormalized = targetPath === '/' ? '/' : targetPath.toLowerCase();
+      if (currentNormalized !== targetNormalized) {
+        if (replace) {
+          window.history.replaceState({ tab }, '', targetPath);
+        } else {
+          window.history.pushState({ tab }, '', targetPath);
+        }
+      }
     }
-    return false;
-  });
+  };
+
+  // Synchronize browser forward / back button navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveTab(getTabFromLocation());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const [lang, setLang] = useState<Language>(() => {
     const saved = localStorage.getItem('lunch_lang');
@@ -63,6 +88,27 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('lunch_lang', lang);
   }, [lang]);
+
+  // Full-Site Visitor Passcode Verification State
+  const [passcodeVerified, setPasscodeVerified] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('team_passcode_verified') === 'true';
+    }
+    return false;
+  });
+
+  // Dynamic page title sync based on current route and language
+  useEffect(() => {
+    const titles = {
+      order: lang === 'zh' ? '员工每日订餐系统 - 我要点餐' : lang === 'ms' ? 'Sistem Pesanan Makanan - Pesan Sekarang' : 'Daily Lunch Ordering System - Order Now',
+      stats: lang === 'zh' ? '员工每日订餐系统 - 订餐统计与核销' : lang === 'ms' ? 'Sistem Pesanan Makanan - Statistik & Bayaran' : 'Daily Lunch Ordering System - Stats & Audit',
+      admin: lang === 'zh' ? '员工每日订餐系统 - 管理后台' : lang === 'ms' ? 'Sistem Pesanan Makanan - Panel Pentadbir' : 'Daily Lunch Ordering System - Admin Dashboard',
+      help: lang === 'zh' ? '员工每日订餐系统 - 系统指南与微信绑定' : lang === 'ms' ? 'Sistem Pesanan Makanan - Panduan & WeChat' : 'Daily Lunch Ordering System - User Guide & WeChat Binding',
+    };
+    if (typeof document !== 'undefined') {
+      document.title = titles[activeTab] || '员工每日订餐系统';
+    }
+  }, [activeTab, lang]);
 
   const t = translations[lang];
   
@@ -385,13 +431,13 @@ export default function App() {
 
             {/* Navigation tabs - visible to everyone in header, Admin tab requires admin password to enter */}
             <div className="flex items-center gap-2">
-              <div className="grid grid-cols-3 sm:flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto">
+              <div className="grid grid-cols-4 sm:flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto">
                 <button
                   onClick={() => {
-                    setActiveTab('order');
+                    navigateToTab('order');
                     fetchAllData();
                   }}
-                  className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
                     activeTab === 'order'
                       ? 'bg-white text-rose-500 shadow-sm'
                       : 'text-slate-500 hover:text-slate-800'
@@ -401,8 +447,8 @@ export default function App() {
                   {t.tabOrder}
                 </button>
                 <button
-                  onClick={() => setActiveTab('stats')}
-                  className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
+                  onClick={() => navigateToTab('stats')}
+                  className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
                     activeTab === 'stats'
                       ? 'bg-white text-slate-800 shadow-sm'
                       : 'text-slate-500 hover:text-slate-800'
@@ -412,8 +458,8 @@ export default function App() {
                   {t.tabStats}
                 </button>
                 <button
-                  onClick={() => setActiveTab('admin')}
-                  className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
+                  onClick={() => navigateToTab('admin')}
+                  className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
                     activeTab === 'admin'
                       ? 'bg-white text-slate-800 shadow-sm'
                       : 'text-slate-500 hover:text-slate-800'
@@ -421,6 +467,17 @@ export default function App() {
                 >
                   <Settings className="hidden sm:block w-3.5 h-3.5" />
                   {t.tabAdmin}
+                </button>
+                <button
+                  onClick={() => navigateToTab('help')}
+                  className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
+                    activeTab === 'help'
+                      ? 'bg-white text-rose-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <HelpCircle className="hidden sm:block w-3.5 h-3.5" />
+                  {lang === 'zh' ? '指南' : 'Guide'}
                 </button>
               </div>
             </div>
@@ -451,6 +508,33 @@ export default function App() {
           </div>
         ) : (
           <div className="space-y-12">
+            {/* Prominent, clean Help instruction link at the top of all internal screens */}
+            {activeTab !== 'help' && (
+              <div className="bg-gradient-to-r from-rose-50 via-amber-50/60 to-rose-50 border border-rose-200/80 rounded-2xl p-3 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 bg-rose-500 text-white rounded-xl flex items-center justify-center shrink-0 shadow-sm shadow-rose-500/20">
+                    <HelpCircle className="w-4 h-4" />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                      {lang === 'zh' ? '首次必绑' : 'Required'}
+                    </span>
+                    <span className="text-xs font-bold text-slate-800">
+                      {lang === 'zh' 
+                        ? '微信自动提醒订餐和支付提醒；（须先绑定姓名开启推送）' 
+                        : 'WeChat auto order & payment alerts (bind name to activate);'}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => navigateToTab('help')}
+                  className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-bold rounded-xl text-xs transition-all shadow-sm shadow-rose-500/20 hover:shadow-rose-500/30 whitespace-nowrap self-start sm:self-auto flex items-center gap-1"
+                >
+                  {lang === 'zh' ? '见操作说明 ➔' : 'View Guide ➔'}
+                </button>
+              </div>
+            )}
+
             {/* Database status warning when ephemeral storage is active */}
             {dbStatus && !dbStatus.isCloud && (
               <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row gap-4 items-start md:items-center justify-between animate-fade-in">
@@ -475,18 +559,15 @@ export default function App() {
             
             {/* View switching */}
             {activeTab === 'order' && (
-              <>
-                <WxPusherBinding />
-                <OrderForm
-                  lang={lang}
-                  orders={orders}
-                  rmbRates={rmbRates}
-                  selectedDate={selectedDate}
-                  onDateChange={setSelectedDate}
-                  onOrderSubmitted={fetchAllData}
-                  onDeleteOrder={handleDeleteOrder}
-                />
-              </>
+              <OrderForm
+                lang={lang}
+                orders={orders}
+                rmbRates={rmbRates}
+                selectedDate={selectedDate}
+                onDateChange={setSelectedDate}
+                onOrderSubmitted={fetchAllData}
+                onDeleteOrder={handleDeleteOrder}
+              />
             )}
 
             {activeTab === 'stats' && (
@@ -512,12 +593,14 @@ export default function App() {
                 onAddTransfer={handleAddTransfer}
                 onDeleteTransfer={handleDeleteTransfer}
                 onUpdateRates={fetchAllData}
-                onBackToOrder={() => {
-                  setActiveTab('order');
-                  if (typeof window !== 'undefined') {
-                    window.history.pushState({}, '', '/');
-                  }
-                }}
+                onBackToOrder={() => navigateToTab('order')}
+              />
+            )}
+
+            {activeTab === 'help' && (
+              <HelpView
+                lang={lang}
+                onBackToOrder={() => navigateToTab('order')}
               />
             )}
           </div>

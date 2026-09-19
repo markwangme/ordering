@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import JSZip from 'jszip';
-import { Order, RmbRates } from '../types';
+import { Order, RmbRates, APP_BASE_URL } from '../types';
 import { getActiveRestaurants } from '../data/menu';
 import { translations, Language } from '../i18n';
 import { 
@@ -82,7 +82,7 @@ export default function RestaurantAuditView({
     }
   };
 
-  const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?shareRest=${restaurantId}&date=${date}` : '';
+  const shareUrl = `${APP_BASE_URL}/?shareRest=${restaurantId}&date=${date}`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(shareUrl);

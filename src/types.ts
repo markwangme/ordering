@@ -81,3 +81,16 @@ export interface StatsSummary {
   tngCount: number;
   restaurantCount: number;
 }
+
+export const APP_BASE_URL = 'https://ordering.ai.studio';
+
+export interface ReminderOrder {
+  id: string;
+  date: string;
+  name: string;
+  price: number;
+  isPaid: boolean;
+  mealName: string;
+  restaurantName: string;
+  plant: string;
+}
